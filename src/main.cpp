@@ -1,7 +1,6 @@
 #include "Extractor.h"
 
 #include <QCoreApplication>
-#include <QGuiApplication>
 #include <QStringList>
 #include <iostream>
 
@@ -65,9 +64,8 @@ bool parseNumber(const QString &text, double &value) {
 } // namespace
 
 int main(int argc, char *argv[]) {
-    // QGuiApplication is needed for image encoding (PNG); it runs headless here.
-    qputenv("QT_QPA_PLATFORM", "offscreen");
-    QGuiApplication app(argc, argv);
+    // Only QImage is used from Qt Gui (to write PNGs), which needs no window system.
+    QCoreApplication app(argc, argv);
     QStringList args = app.arguments();
     args.removeFirst();
 
