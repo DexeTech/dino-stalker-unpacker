@@ -33,6 +33,32 @@ int bitsPerPixel(quint32 psm) {
     }
 }
 
+// Where pixel (x, y) of a swizzled image is stored. An 8-bit texture is uploaded as
+// 32-bit data of half the width and height, so its pixels sit in GS PSMCT32 order
+// read back as PSMT8. Returns a byte index.
+qint64 swizzled8(int x, int y, int width) {
+    const int block = (y & ~0xF) * width + (x & ~0xF) * 2;
+    const int swap = (((y + 2) >> 2) & 1) * 4;
+    const int row = (((y & ~3) >> 1) + (y & 1)) & 7;
+    const int column = row * width * 2 + ((x + swap) & 7) * 4;
+    const int byte = ((y >> 1) & 1) + ((x >> 2) & 2);
+    return qint64(block) + column + byte;
+}
+
+// The same for a 4-bit texture (PSMCT32 read back as PSMT4). Returns a nibble index.
+qint64 swizzled4(int x, int y, int width, int height) {
+    const int pagesWide = (width + 127) / 128, pagesHigh = (height + 127) / 128;
+    const int pageNumber = ((y & ~0x7F) / 128) * pagesWide + (x & ~0x7F) / 128;
+    const qint64 page = qint64((pageNumber / pagesHigh) * 32) * height * 2 + (pageNumber % pagesHigh) * 64 * 4;
+    const int localX = x & 0x7F, localY = y & 0x7F;
+    const int block = ((localX & ~0x1F) >> 1) * height + (localY & ~0xF) * 2;
+    const int swap = (((y + 2) >> 2) & 1) * 4;
+    const int row = (((y & ~3) >> 1) + (y & 1)) & 7;
+    const int column = row * height * 2 + ((x + swap) & 7) * 4;
+    const int byte = (x >> 3) & 3;
+    return (page + block + column + byte) * 2 + ((y >> 1) & 1);
+}
+
 } // namespace
 
 bool P2Image::parse(const QByteArray &data, qint64 offset, P2Image &image, QString *error) {
@@ -42,6 +68,7 @@ bool P2Image::parse(const QByteArray &data, qint64 offset, P2Image &image, QStri
         return false;
     }
     image.offset = offset;
+    image.type = r.u32(offset + 0x0C);
     image.name = r.name(offset + 0x10, 8);
     const int log2w = r.u16(offset + 0x20), log2h = r.u16(offset + 0x22);
     image.format = r.u32(offset + 0x24);
@@ -104,13 +131,26 @@ QImage P2Image::decode(const QByteArray &data, QString *error) const {
         }
     }
 
+    const bool unswizzle = swizzled() && (psm == 0x13 || psm == 0x14);
+    if (unswizzle && (width < 16 || height < 4 || (psm == 0x14 && (width < 32 || height < 16)))) {
+        if (error) *error = "Swizzled image is too small to unswizzle.";
+        return QImage();
+    }
     QImage image(width, height, QImage::Format_ARGB32);
     const qint64 base = offset + pixelOffset;
     const uchar *px = reinterpret_cast<const uchar *>(data.constData()) + base;
+    const qint64 pixels = qint64(width) * height;
     for (int y = 0; y < height; ++y) {
         QRgb *line = reinterpret_cast<QRgb *>(image.scanLine(y));
         for (int x = 0; x < width; ++x) {
-            const qint64 i = qint64(y) * width + x;
+            qint64 i = qint64(y) * width + x;
+            if (unswizzle) {
+                i = psm == 0x13 ? swizzled8(x, y, width) : swizzled4(x, y, width, height);
+                if (i < 0 || i >= pixels) {
+                    if (error) *error = "Swizzled pixel is outside the image.";
+                    return QImage();
+                }
+            }
             switch (psm) {
             case 0x14: line[x] = palette[(px[i >> 1] >> ((i & 1) * 4)) & 0xF]; break;
             case 0x13: line[x] = palette[px[i]]; break;

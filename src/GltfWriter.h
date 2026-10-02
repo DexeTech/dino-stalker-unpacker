@@ -13,10 +13,10 @@
 // Every part becomes a node with its rest transform. Models that are skinned or have
 // motions get a skin (one joint per part, each vertex bound 100% to its part, as the
 // game does); static models get one mesh per part node instead. A root node turns the
-// game's -Y-up axes into glTF's +Y-up (180 degrees about X) and applies the scale.
+// game's -Y-up axes into glTF's +Y-up (180 degrees about X).
 struct GltfOptions {
     double framesPerSecond = 60.0;
-    double scale = 1.0;
+    double scale = 0.0;   // 0: automatic, millimetre models to metres (0.001), others 1
 };
 
 struct GltfMotion {

@@ -36,7 +36,8 @@ Options:
   --no-movies         skip the movies (they are about 2.4 GB)
   --no-disc-files     with a disc image, do not copy the unchanged files
   --fps=N             animation frames per second (default 60)
-  --scale=N           scale models by N (default 1: game units)
+  --scale=N           scale models by N (default: the size the game draws
+                      them at, in metres; --scale=1 keeps the file units)
   --help              show this text
 )HELP";
 

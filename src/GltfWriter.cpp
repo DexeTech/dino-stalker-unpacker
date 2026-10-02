@@ -210,11 +210,66 @@ QString alphaMode(const QImage &image, bool *hasPartial) {
     return partial ? "BLEND" : "MASK";
 }
 
+// Characters, items and shadows are modelled in millimetres (the largest is about
+// 16,600 units long), levels and debris in metres (the largest about 280). Anything
+// over 500 units in its rest pose is taken to be in millimetres.
+double automaticScale(const P2Model &model) {
+    QVector<Mat> world(model.parts.size());
+    Vec3 lo{{1e30f, 1e30f, 1e30f}}, hi{{-1e30f, -1e30f, -1e30f}};
+    for (int i = 0; i < model.parts.size(); ++i) {
+        const P2Model::Part &part = model.parts[i];
+        world[i] = part.parent < 0 ? part.matrix : multiply(part.matrix, world[part.parent]);
+        for (const auto &group : part.groups)
+            for (const auto &strip : group.strips)
+                for (const auto &v : strip.vertices) {
+                    const Vec3 p = transformPoint(v.position, world[i]);
+                    for (int c = 0; c < 3; ++c) {
+                        lo[c] = std::min(lo[c], p[c]);
+                        hi[c] = std::max(hi[c], p[c]);
+                    }
+                }
+    }
+    float size = 0;
+    for (int c = 0; c < 3; ++c) size = std::max(size, hi[c] - lo[c]);
+    return size > 500 ? 0.001 : 1.0;
+}
+
 } // namespace
 
 bool GltfWriter::write(const QString &fileName, const QString &modelName, const P2Model &model,
                        const QVector<const QImage *> &textures, const QVector<GltfMotion> &motions,
                        const GltfOptions &options, QString *error) {
+    // Bake the scale into the positions, so the model imports at its real size with a
+    // scale of 1.
+    const double scale = options.scale > 0 ? options.scale : automaticScale(model);
+    if (scale != 1.0) {
+        const float s = float(scale);
+        P2Model scaledModel = model;
+        for (auto &part : scaledModel.parts) {
+            for (int c = 12; c < 15; ++c) part.matrix[c] *= s;
+            for (auto &group : part.groups)
+                for (auto &strip : group.strips)
+                    for (auto &v : strip.vertices)
+                        for (float &p : v.position) p *= s;
+        }
+        QVector<P2Motion> scaledMotions;
+        scaledMotions.reserve(motions.size());
+        QVector<GltfMotion> scaledRefs;
+        for (const GltfMotion &gm : motions) {
+            P2Motion m = *gm.motion;
+            for (auto &bone : m.bones) {
+                for (int c = 12; c < 15; ++c) bone.matrix[c] *= s;
+                for (auto &key : bone.keys)
+                    for (float &t : key.translation) t *= s;
+            }
+            scaledMotions.append(m);
+            scaledRefs.append(GltfMotion{&scaledMotions.last(), gm.name});
+        }
+        GltfOptions unscaled = options;
+        unscaled.scale = 1.0;
+        return write(fileName, modelName, scaledModel, textures, scaledRefs, unscaled, error);
+    }
+
     const int partCount = model.parts.size();
     bool skinnedModel = !motions.isEmpty();
     for (const auto &part : model.parts) skinnedModel = skinnedModel || part.skinned;
@@ -400,7 +455,6 @@ bool GltfWriter::write(const QString &fileName, const QString &modelName, const 
 
     // Root: -Y up to +Y up is a 180 degree turn about X.
     QJsonObject root{{"name", modelName}, {"rotation", QJsonArray{1.0, 0.0, 0.0, 0.0}}, {"children", rootChildren}};
-    if (options.scale != 1.0) root["scale"] = QJsonArray{options.scale, options.scale, options.scale};
     QJsonArray allNodes;
     allNodes.append(root);
     for (int i = 0; i < partCount; ++i) allNodes.append(partNodes[i]);

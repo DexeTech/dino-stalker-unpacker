@@ -2,6 +2,7 @@
 #include "Iso9660.h"
 #include "Lzss.h"
 #include "Movie.h"
+#include "EnemySizes.h"
 #include "SoundBank.h"
 #include "TextureBindings.h"
 
@@ -354,7 +355,10 @@ bool Extractor::exportChain(const QByteArray &data, const QString &name, const Q
                                  : QString("%1/%2_model_%3.gltf").arg(outDir, safe(baseName(name))).arg(m, 2, 10, QChar('0'));
         QString error;
         const QString modelName = chain.models.size() == 1 ? baseName(name) : QString("%1_model_%2").arg(baseName(name)).arg(m, 2, 10, QChar('0'));
-        if (!GltfWriter::write(gltf, modelName, model, *textures, motions, options.gltf, &error)) {
+        // Enemies: the size the game draws them at (see EnemySizes.cpp).
+        GltfOptions gltfOptions = options.gltf;
+        if (gltfOptions.scale <= 0) enemyModelScale(file, m, &gltfOptions.scale);
+        if (!GltfWriter::write(gltf, modelName, model, *textures, motions, gltfOptions, &error)) {
             fail(QString("%1: model %2: %3").arg(file).arg(m).arg(error));
             return false;
         }

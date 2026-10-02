@@ -37,12 +37,12 @@ A folder is converted to `<folder>_extracted` next to it, keeping its layout, an
 | `--no-movies` | Skip the movies (about 2.4 GB of output) |
 | `--no-disc-files` | With a disc image, do not copy the unchanged files |
 | `--fps=N` | Animation frames per second (default 60) |
-| `--scale=N` | Scale models by N (default 1: game units) |
+| `--scale=N` | Scale models by N (default: the size the game draws them at, in metres; `--scale=1` keeps the units of the files) |
 
 ### What you get
 
 - **Images**: `images\NNN_NAME.png`, in file order, with the name the game gives each image. Every converted file also gets `contents.txt`, a list of the blocks in it (offset, size, type, name, dimensions), including data the tool does not convert.
-- **Enemies** (`DATA\ENEMYDT\MD`, `NOTDINO`, `STGENEDT`): rigged glTF, one bone per body part, with the motions from `DATA\ENEMYDT\PMT` (matched by bone count and name: `TREXMD` gets `TREXPMT`). Each motion is an animation named after its file and index (`TREXPMT_03`). In Blender: File > Import > glTF 2.0, then pick the action.
+- **Enemies** (`DATA\ENEMYDT\MD`, `NOTDINO`, `STGENEDT`): rigged glTF, one bone per body part, with the motions from `DATA\ENEMYDT\PMT` (matched by bone count and name: `TREXMD` gets `TREXPMT`). Each motion is an animation named after its file and index (`TREXPMT_03`). In Blender: File > Import > glTF 2.0, then pick the action. Blender's default Solid view shows only plain colours; switch the viewport to Material Preview (Z, then 2) to see the textures.
 - **Levels** (`DATA\WORLD\ST*_BIN.BIN`): one glTF per model, textured as in the game. The ground and scenery models are in level coordinates, so importing all of a level's files rebuilds the level. `ST2/3/7_GND.BIN` are copies of the start of the matching `ST*_BIN.BIN` and are not converted twice.
 - **Items and weapons** (`DATA\ITEM\ITM_BIN.BIN`, `DATA\BLT.BIN`), insects, shadows and the 2D artwork (gallery, menus, title, results, fonts).
 - **Sound** (`SOUND.BIN`):
@@ -56,7 +56,7 @@ A folder is converted to `<folder>_extracted` next to it, keeping its layout, an
 - **Level object placement**: breakable and repeated objects (crates, cars, trees) are placed in the level by tables the tool does not decode yet, so they export at their own origin.
 - **Texture binding outside the European release**: level, item, bullet and insect models do not say which images they use; the game's set-up code binds them. `src/TextureBindings.cpp` holds those bindings for the European version 1.02. With other versions, files of a different size fall back to the image order, which is likely to be wrong for levels.
 - **Collision copies**: models the game never binds to textures (such as the collision copies of breakable objects) export untextured.
-- **Units**: characters are in millimetres (the T-Rex is about 6,500 units tall); levels are in roughly metres.
+- **Units and sizes**: models import in metres at the size the game draws them. Enemies are made in millimetres and the game scales each type by its own factor, which the files do not hold: the red raptor (`RPTR`) is drawn 1.4 times its model size, the small ones (`RPTOB`) 0.85 times, the T-Rex 1.5 times (about 25 m long). `src/EnemySizes.cpp` holds these factors, taken from the game's code. Ordinary enemies also get a random 0-0.135 added in game, so sizes vary slightly; the export uses the base size. `PRSOMD` is also used 1.6 times larger for a second enemy type. Other models made in millimetres (items, insects, shadows) are recognised by size (over 500 units across) and converted to metres. Use `--scale=1` for the units of the files.
 - **Not converted**: the title water video (`TTLWATER.IPU`), the memory-card icon, camera paths (`KMD`), stage event data (`SETDATA`), demo data and the credits (`STAFF.BIN`). They are in `disc\`.
 - **Sound**: one VAB bank in `SOUND.BIN` (`vab_09`) has only its header there; its samples are elsewhere. VAB sample rates are worked out from each sample's tuning and may be off for samples the game plays at another pitch.
 - **Animation timing**: motions are keyed in frames and exported at 60 frames per second; the PAL game may run them at 50.
@@ -69,12 +69,12 @@ All values are little-endian. Most files are back-to-back `P2IG`/`P2OD`/`P2MT` b
 
 | Offset | |
 |---|---|
-| 0x00 | `"P2IG"`, u32 0x61, u32 0, u32 type |
+| 0x00 | `"P2IG"`, u32 0x61, u32 0, u32 type (bit 3: swizzled) |
 | 0x10 | char name[8], 8 bytes |
 | 0x20 | u16 log2 width, u16 log2 height, u32 GS pixel format |
 | 0x40 | u32 palette offset, u32 palette size, u32 pixel offset, u32 pixel size |
 
-Pixel formats: 0x00 RGBA32, 0x01 RGB24, 0x02 RGBA16, 0x13 8-bit and 0x14 4-bit indexed; bits 8+ give the palette format (0 = RGBA32, 2 = RGBA16). Pixels are linear (not swizzled). 8-bit palettes use the GS CSM1 order (entries 8-15 and 16-23 of every 32 are swapped). Alpha 0x80 is opaque.
+Pixel formats: 0x00 RGBA32, 0x01 RGB24, 0x02 RGBA16, 0x13 8-bit and 0x14 4-bit indexed; bits 8+ give the palette format (0 = RGBA32, 2 = RGBA16). Pixels are linear, except when bit 3 of the type is set (the enemy textures and two effects): then they are swizzled into GS memory order, so the game can upload an 8-bit image as 32-bit data at half the width and height (4-bit: PSMCT32 read back as PSMT4). 8-bit palettes use the GS CSM1 order (entries 8-15 and 16-23 of every 32 are swapped). Alpha 0x80 is opaque.
 
 ### P2OD: model
 
