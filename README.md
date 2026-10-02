@@ -110,3 +110,7 @@ Then run `windeployqt build\dino-stalker-unpacker.exe` to copy the Qt runtime ne
 ## Credits
 
 Dino Stalker is © Capcom. This tool contains no game data; you need your own copy of the game.
+
+## License
+
+GPL-3.0. See [LICENSE](LICENSE) or https://www.gnu.org/licenses/gpl-3.0.html.
