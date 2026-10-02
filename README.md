@@ -13,6 +13,8 @@ Extracts and converts the data of **Dino Stalker** (PlayStation 2, Capcom, 2002)
 
 It reads the disc image directly, so you do not need to extract the files first. Tested with the European release (SLES-50930, version 1.02).
 
+> **First release: the animations need fixing.** Models are exported with their animations, but every animation currently plays as a model standing still. See [Known limitations](#known-limitations).
+
 ## Use
 
 Drag the disc image, a folder or individual files onto `dino-stalker-unpacker.exe` (its window stays open until you press Enter), or run it from a command prompt:
@@ -53,6 +55,7 @@ A folder is converted to `<folder>_extracted` next to it, keeping its layout, an
 
 ## Known limitations
 
+- **Animations**: the motions are matched to the models and exported as glTF animations, but they do not move the model yet: every animation plays as the model standing still. This needs fixing in a later release.
 - **Level object placement**: breakable and repeated objects (crates, cars, trees) are placed in the level by tables the tool does not decode yet, so they export at their own origin.
 - **Texture binding outside the European release**: level, item, bullet and insect models do not say which images they use; the game's set-up code binds them. `src/TextureBindings.cpp` holds those bindings for the European version 1.02. With other versions, files of a different size fall back to the image order, which is likely to be wrong for levels.
 - **Collision copies**: models the game never binds to textures (such as the collision copies of breakable objects) export untextured.
