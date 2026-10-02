@@ -2,6 +2,9 @@
 
 Extracts and converts the data of **Dino Stalker** (PlayStation 2, Capcom, 2002) into common formats:
 
+
+Special thanks to **[SpikeTheEditor](https://github.com/SpikeTheEditor)** for the testing, feedback, and original idea.
+
 | Game data | Converted to |
 |---|---|
 | Images (`P2IG`) | PNG |
