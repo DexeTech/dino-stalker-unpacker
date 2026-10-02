@@ -1,0 +1,12 @@
+# Build output
+build/
+
+# Game data and extraction output (never commit these)
+Dino Stalker (Europe)/
+*.iso
+*(extracted)/
+*_extracted/
+
+# Local research scratch area
+_work/
+release/
