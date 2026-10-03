@@ -17,6 +17,10 @@
 // The key durations of every bone add up to the motion's length in frames.
 // The rotation replaces the rest rotation; a translation key is added to the
 // rest translation.
+// The rest matrix is this motion's own: it holds the pose of every bone and channel the
+// motion does not key, and its translation is the absolute base of the translation keys.
+// It differs from the model's rest pose, and from motion to motion (a motion that
+// continues another starts where that one ended).
 struct P2Motion {
     struct Key {
         int frame = 0;                         // start frame of the key
@@ -28,6 +32,12 @@ struct P2Motion {
         quint32 channels = 0;
         std::array<float, 16> matrix{};
         QVector<Key> keys;
+
+        // The pose the rest matrix gives: its rotation and scale, translation 0.
+        Key rest() const;
+        // Key k (negative: from the end) with the channels the bone does not key taken
+        // from rest(); rest() when the bone has no keys.
+        Key full(int k) const;
     };
 
     qint64 offset = 0;

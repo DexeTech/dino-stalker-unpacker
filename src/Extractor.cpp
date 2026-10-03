@@ -3,6 +3,7 @@
 #include "Lzss.h"
 #include "Movie.h"
 #include "EnemySizes.h"
+#include "MotionChains.h"
 #include "SoundBank.h"
 #include "TextureBindings.h"
 
@@ -241,17 +242,45 @@ Extractor::MotionFile *Extractor::motionFile(const QString &key) {
     return &mf;
 }
 
-QVector<GltfMotion> Extractor::motionsFor(const QString &name, const P2Chain &chain, const P2Model &model) {
+void Extractor::addJoinedMotions(QVector<GltfMotion> &result, const QVector<P2Motion> &motions,
+                                 const QVector<int> &indices, const QString &prefix, QStringList *names) {
+    joinedMotions.clear();
+    if (!options.joinMotions) return;
+    QVector<const P2Motion *> candidates;
+    for (int i : indices) candidates.append(&motions[i]);
+    QStringList chainNames;
+    for (const QVector<int> &chain : findMotionChains(candidates)) {
+        QVector<const P2Motion *> parts;
+        QStringList numbers;
+        for (int c : chain) {
+            parts.append(candidates[c]);
+            numbers << QString("%1").arg(indices[c], 2, 10, QChar('0'));
+        }
+        joinedMotions.append(joinMotions(parts));
+        chainNames << QString("%1_%2").arg(prefix, numbers.join('+'));
+    }
+    // joinedMotions is complete, so the pointers stay valid until the next model.
+    for (int k = 0; k < joinedMotions.size(); ++k) result.append({&joinedMotions[k], chainNames[k]});
+    if (names) *names += chainNames;
+}
+
+QVector<GltfMotion> Extractor::motionsFor(const QString &name, const P2Chain &chain, const P2Model &model,
+                                          QStringList *joinedNames) {
     QVector<GltfMotion> result;
     if (!options.animations) return result;
     const int parts = model.parts.size();
     // Motions stored in the same file.
+    QVector<int> indices;
     for (int i = 0; i < chain.motions.size(); ++i) {
         if (chain.motions[i].bones.size() == parts) {
             result.append({&chain.motions[i], QString("%1_motion_%2").arg(baseName(name)).arg(i, 2, 10, QChar('0'))});
+            indices.append(i);
         }
     }
-    if (!result.isEmpty()) return result;
+    if (!result.isEmpty()) {
+        addJoinedMotions(result, chain.motions, indices, baseName(name) + "_motion", joinedNames);
+        return result;
+    }
 
     // Separate motion files only exist for the enemies (ENEMYDT/PMT).
     if (currentSourceDir.isEmpty() && !name.contains("ENEMYDT/", Qt::CaseInsensitive)) return result;
@@ -286,9 +315,12 @@ QVector<GltfMotion> Extractor::motionsFor(const QString &name, const P2Chain &ch
     }
     if (best && (bestPrefix >= 2 || matches == 1)) {
         for (int i = 0; i < best->motions.size(); ++i) {
-            if (best->motions[i].bones.size() == parts)
+            if (best->motions[i].bones.size() == parts) {
                 result.append({&best->motions[i], QString("%1_%2").arg(best->name).arg(i, 2, 10, QChar('0'))});
+                indices.append(i);
+            }
         }
+        addJoinedMotions(result, best->motions, indices, best->name, joinedNames);
     }
     return result;
 }
@@ -320,6 +352,7 @@ bool Extractor::exportChain(const QByteArray &data, const QString &name, const Q
 
     // Models, with their textures and motions.
     int modelsWritten = 0, animated = 0;
+    QStringList joinedNames;
     for (int m = 0; m < chain.models.size(); ++m) {
         const P2Model &model = chain.models[m];
         if (!model.hasGeometry()) continue;
@@ -349,7 +382,10 @@ bool Extractor::exportChain(const QByteArray &data, const QString &name, const Q
             textures = &bound;
         }
 
-        const QVector<GltfMotion> motions = motionsFor(name, chain, model);
+        QStringList modelJoined;
+        const QVector<GltfMotion> motions = motionsFor(name, chain, model, &modelJoined);
+        for (const QString &joined : modelJoined)
+            if (!joinedNames.contains(joined)) joinedNames << joined;
         const QString gltf = chain.models.size() == 1
                                  ? QString("%1/%2.gltf").arg(outDir, safe(baseName(name)))
                                  : QString("%1/%2_model_%3.gltf").arg(outDir, safe(baseName(name))).arg(m, 2, 10, QChar('0'));
@@ -385,6 +421,10 @@ bool Extractor::exportChain(const QByteArray &data, const QString &name, const Q
                 out << QString(" %1  %2 bones, %3 frames").arg(b.index, 3).arg(mot.bones.size()).arg(mot.length);
             }
             out << "\n";
+        }
+        if (!joinedNames.isEmpty()) {
+            out << "\nJoined animations (motions the game plays one after another, also exported as one):\n";
+            for (const QString &joined : joinedNames) out << "  " << joined << "\n";
         }
     }
 

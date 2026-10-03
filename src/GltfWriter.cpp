@@ -408,8 +408,9 @@ bool GltfWriter::write(const QString &fileName, const QString &modelName, const 
         else children[model.parts[i].parent].append(firstPart + i);
     }
     QVector<QJsonObject> partNodes(partCount);
+    QVector<Trs> partTrs(partCount);
     for (int i = 0; i < partCount; ++i) {
-        const Trs trs = decompose(model.parts[i].matrix);
+        const Trs trs = partTrs[i] = decompose(model.parts[i].matrix);
         QJsonObject node{{"name", QString("part_%1").arg(i, 2, 10, QChar('0'))}};
         if (!(nearly(trs.t[0], 0) && nearly(trs.t[1], 0) && nearly(trs.t[2], 0))) node["translation"] = array(trs.t.data(), 3);
         if (!(nearly(trs.r[0], 0) && nearly(trs.r[1], 0) && nearly(trs.r[2], 0))) node["rotation"] = array(trs.r.data(), 4);
@@ -462,6 +463,13 @@ bool GltfWriter::write(const QString &fileName, const QString &modelName, const 
 
     // Animations.
     QJsonArray animations;
+    QVector<quint32> animatedChannels(partCount, 0);   // per part: channels any motion keys
+    for (const GltfMotion &gm : motions) {
+        if (gm.motion->bones.size() != partCount) continue;
+        for (int bone = 0; bone < partCount; ++bone)
+            if (!gm.motion->bones[bone].keys.isEmpty()) animatedChannels[bone] |= gm.motion->bones[bone].channels & (1 | 4 | 8);
+    }
+    int constantTime = -1;   // shared time accessor of the constant channels
     for (const GltfMotion &gm : motions) {
         const P2Motion &motion = *gm.motion;
         if (motion.bones.size() != partCount) continue;
@@ -474,39 +482,72 @@ bool GltfWriter::write(const QString &fileName, const QString &modelName, const 
             channels.append(QJsonObject{{"sampler", samplersJson.size() - 1},
                                         {"target", QJsonObject{{"node", node}, {"path", path}}}});
         };
+        // Stored w, x, y, z; the game applies it to row vectors, so the glTF rotation is
+        // its conjugate.
+        auto gltfRotation = [](const std::array<float, 4> &stored) {
+            Quat q{-stored[1], -stored[2], -stored[3], stored[0]};
+            const float len = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+            if (len > 1e-6f) for (float &c : q) c /= len;
+            else q = {0, 0, 0, 1};
+            return q;
+        };
+        // A channel the motion does not key holds the pose of the motion's rest matrix.
+        // It is written as a constant when that differs from the node's rest, or when
+        // another motion animates it (so each animation sets the whole pose and does not
+        // inherit the last one's in an editor).
+        auto addConstant = [&](const QVector<float> &value, int components, const QString &type, int node,
+                               const QString &path) {
+            if (constantTime < 0) constantTime = b.addFloats({0.0f}, 1, "SCALAR", 0, true);
+            const int output = b.addFloats(value, components, type, 0);
+            samplersJson.append(QJsonObject{{"input", constantTime}, {"output", output}, {"interpolation", "STEP"}});
+            channels.append(QJsonObject{{"sampler", samplersJson.size() - 1},
+                                        {"target", QJsonObject{{"node", node}, {"path", path}}}});
+        };
         for (int bone = 0; bone < partCount; ++bone) {
             const P2Motion::Bone &mb = motion.bones[bone];
-            if (mb.keys.isEmpty()) continue;
+            const quint32 keyed = mb.keys.isEmpty() ? 0 : mb.channels;
+            const P2Motion::Key rest = mb.rest();
+            const Trs &node = partTrs[bone];
             QVector<float> times;
             for (const auto &key : mb.keys) times << float(key.frame / options.framesPerSecond);
-            if (mb.channels & 1) {
+            if (keyed & 1) {
                 QVector<float> values;
                 Quat previous{{0, 0, 0, 1}};
                 for (const auto &key : mb.keys) {
-                    // Stored w, x, y, z; the game applies it to row vectors, so the
-                    // glTF rotation is its conjugate.
-                    Quat q{-key.rotation[1], -key.rotation[2], -key.rotation[3], key.rotation[0]};
-                    const float len = std::sqrt(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
-                    if (len > 1e-6f) for (float &c : q) c /= len;
-                    else q = {0, 0, 0, 1};
+                    Quat q = gltfRotation(key.rotation);
                     if (q[0] * previous[0] + q[1] * previous[1] + q[2] * previous[2] + q[3] * previous[3] < 0)
                         for (float &c : q) c = -c;
                     previous = q;
                     values << q[0] << q[1] << q[2] << q[3];
                 }
                 addSampler(times, values, 4, "VEC4", firstPart + bone, "rotation");
+            } else {
+                const Quat q = gltfRotation(rest.rotation);
+                const float dot = q[0] * node.r[0] + q[1] * node.r[1] + q[2] * node.r[2] + q[3] * node.r[3];
+                if ((animatedChannels[bone] & 1) || std::fabs(dot) < 0.999999f)
+                    addConstant({q[0], q[1], q[2], q[3]}, 4, "VEC4", firstPart + bone, "rotation");
             }
-            if (mb.channels & 4) {
+            if (keyed & 4) {
                 QVector<float> values;
                 for (const auto &key : mb.keys)
                     for (int c = 0; c < 3; ++c) values << mb.matrix[12 + c] + key.translation[c];
                 addSampler(times, values, 3, "VEC3", firstPart + bone, "translation");
+            } else {
+                const QVector<float> t{mb.matrix[12], mb.matrix[13], mb.matrix[14]};
+                bool same = true;
+                for (int c = 0; c < 3; ++c) same = same && std::fabs(t[c] - node.t[c]) < 1e-4f * std::max(1.0f, std::fabs(node.t[c]));
+                if ((animatedChannels[bone] & 4) || !same) addConstant(t, 3, "VEC3", firstPart + bone, "translation");
             }
-            if (mb.channels & 8) {
+            if (keyed & 8) {
                 QVector<float> values;
                 for (const auto &key : mb.keys)
                     for (int c = 0; c < 3; ++c) values << key.scale[c];
                 addSampler(times, values, 3, "VEC3", firstPart + bone, "scale");
+            } else {
+                const QVector<float> s{rest.scale[0], rest.scale[1], rest.scale[2]};
+                bool same = true;
+                for (int c = 0; c < 3; ++c) same = same && std::fabs(s[c] - node.s[c]) < 1e-5f;
+                if ((animatedChannels[bone] & 8) || !same) addConstant(s, 3, "VEC3", firstPart + bone, "scale");
             }
         }
         if (!channels.isEmpty())

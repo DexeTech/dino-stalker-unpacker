@@ -14,6 +14,10 @@
 // motions get a skin (one joint per part, each vertex bound 100% to its part, as the
 // game does); static models get one mesh per part node instead. A root node turns the
 // game's -Y-up axes into glTF's +Y-up (180 degrees about X).
+//
+// Each motion becomes an animation. Channels a motion does not key hold its own rest
+// pose (see P2Motion.h); they are written as constants where that differs from the
+// node's rest or another animation keys them, so every animation sets the whole pose.
 struct GltfOptions {
     double framesPerSecond = 60.0;
     double scale = 0.0;   // 0: automatic, millimetre models to metres (0.001), others 1

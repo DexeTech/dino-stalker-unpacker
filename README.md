@@ -16,8 +16,6 @@ Special thanks to **[SpikeTheEditor](https://github.com/SpikeTheEditor)** for th
 
 It reads the disc image directly, so you do not need to extract the files first. Tested with the European release (SLES-50930, version 1.02).
 
-> **First release: the animations need fixing.** Models are exported with their animations, but every animation currently plays as a model standing still. See [Known limitations](#known-limitations).
-
 ## Use
 
 Drag the disc image, a folder or individual files onto `dino-stalker-unpacker.exe` (its window stays open until you press Enter), or run it from a command prompt:
@@ -39,6 +37,7 @@ A folder is converted to `<folder>_extracted` next to it, keeping its layout, an
 |---|---|
 | `--output-dir=PATH` | Write everything under PATH |
 | `--no-animations` | Export models without animations |
+| `--no-joined-animations` | Export only the game's own motions, without the joined animations (see below) |
 | `--no-movies` | Skip the movies (about 2.4 GB of output) |
 | `--no-disc-files` | With a disc image, do not copy the unchanged files |
 | `--fps=N` | Animation frames per second (default 60) |
@@ -47,7 +46,9 @@ A folder is converted to `<folder>_extracted` next to it, keeping its layout, an
 ### What you get
 
 - **Images**: `images\NNN_NAME.png`, in file order, with the name the game gives each image. Every converted file also gets `contents.txt`, a list of the blocks in it (offset, size, type, name, dimensions), including data the tool does not convert.
-- **Enemies** (`DATA\ENEMYDT\MD`, `NOTDINO`, `STGENEDT`): rigged glTF, one bone per body part, with the motions from `DATA\ENEMYDT\PMT` (matched by bone count and name: `TREXMD` gets `TREXPMT`). Each motion is an animation named after its file and index (`TREXPMT_03`). In Blender: File > Import > glTF 2.0, then pick the action. Blender's default Solid view shows only plain colours; switch the viewport to Material Preview (Z, then 2) to see the textures.
+- **Enemies** (`DATA\ENEMYDT\MD`, `NOTDINO`, `STGENEDT`): rigged glTF, one bone per body part, with the motions from `DATA\ENEMYDT\PMT` (matched by bone count and name: `TREXMD` gets `TREXPMT`). Each motion is an animation named after its file and index (`TREXPMT_03`).
+  - **Joined animations**: the game plays some actions as several motions back to back. The T-Rex's roar is `TREXPMT_54` (rising into the roar), `55` (holding it; the game repeats it) and `56` (back to the idle pose), so each one alone stops part-way. These are also exported joined into one animation, named after its parts (`TREXPMT_54+55+56`), with a hold played once. The motions do not say which ones belong together, so the tool finds them by pose: a motion continues another when it starts in the pose the other ends in. The idle pose, which almost every motion starts or ends in, is not followed. `contents.txt` lists the joined animations. `--no-joined-animations` leaves them out.
+  - **In Blender**: set the frame rate before importing (Output Properties > Format > Frame Rate: 60, or the `--fps` you exported with), because the importer turns the animations' seconds into frames at the scene's frame rate. Then File > Import > glTF 2.0, pick an action in the Action Editor and set the scene's end frame to the action's length. Blender's default Solid view shows only plain colours; switch the viewport to Material Preview (Z, then 2) to see the textures.
 - **Levels** (`DATA\WORLD\ST*_BIN.BIN`): one glTF per model, textured as in the game. The ground and scenery models are in level coordinates, so importing all of a level's files rebuilds the level. `ST2/3/7_GND.BIN` are copies of the start of the matching `ST*_BIN.BIN` and are not converted twice.
 - **Items and weapons** (`DATA\ITEM\ITM_BIN.BIN`, `DATA\BLT.BIN`), insects, shadows and the 2D artwork (gallery, menus, title, results, fonts).
 - **Sound** (`SOUND.BIN`):
@@ -58,7 +59,7 @@ A folder is converted to `<folder>_extracted` next to it, keeping its layout, an
 
 ## Known limitations
 
-- **Animations**: the motions are matched to the models and exported as glTF animations, but they do not move the model yet: every animation plays as the model standing still. This needs fixing in a later release.
+- **Joined animations** are found from the poses alone (see above), not from the game's code, so a pair can be missed or, rarely, joined wrongly. The game's own motions are always exported as well.
 - **Level object placement**: breakable and repeated objects (crates, cars, trees) are placed in the level by tables the tool does not decode yet, so they export at their own origin.
 - **Texture binding outside the European release**: level, item, bullet and insect models do not say which images they use; the game's set-up code binds them. `src/TextureBindings.cpp` holds those bindings for the European version 1.02. With other versions, files of a different size fall back to the image order, which is likely to be wrong for levels.
 - **Collision copies**: models the game never binds to textures (such as the collision copies of breakable objects) export untextured.
@@ -93,6 +94,7 @@ Pixel formats: 0x00 RGBA32, 0x01 RGB24, 0x02 RGBA16, 0x13 8-bit and 0x14 4-bit i
 
 - Header: `"P2MT"`, u32 0x7000, u32 bone count; bone records (0x50 bytes each) from 0x10: u32 key offset, u32 key count, u32 channels (bit 0 rotation, bit 2 translation, bit 3 scale), u32, rest matrix.
 - Key: u32 frames until the next key (0 on the last), 12 bytes, then for each channel present: quaternion (w, x, y, z), translation, scale. The quaternion is applied to row vectors, so the standard rotation is its conjugate. A translation key is added to the rest translation.
+- The rest matrix belongs to the motion, not the skeleton: it holds the pose of every bone and channel the motion does not key, and its translation is the absolute base of the translation keys. It differs from the model's rest pose and from motion to motion (a motion that continues another starts where that one ended), so the export gives unkeyed channels the motion's rest pose.
 
 ### PAK
 

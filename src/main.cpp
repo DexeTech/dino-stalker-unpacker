@@ -33,7 +33,10 @@ Each converted P2 file also gets a contents.txt listing its blocks.
 Options:
   --output-dir=PATH   write everything under PATH
   --no-animations     export models without animations
-  --no-movies         skip the movies (they are about 2.4 GB)
+  --no-joined-animations
+                      only the game's own motions: do not also join the ones
+                      it plays back to back (TREXPMT_54+55+56) into one
+  --no-movies        skip the movies (they are about 2.4 GB)
   --no-disc-files     with a disc image, do not copy the unchanged files
   --fps=N             animation frames per second (default 60)
   --scale=N           scale models by N (default: the size the game draws
@@ -80,6 +83,8 @@ int main(int argc, char *argv[]) {
             options.outputDir = arg.mid(13);
         } else if (arg == "--no-animations") {
             options.animations = false;
+        } else if (arg == "--no-joined-animations") {
+            options.joinMotions = false;
         } else if (arg == "--no-movies") {
             options.movies = false;
         } else if (arg == "--no-disc-files") {
